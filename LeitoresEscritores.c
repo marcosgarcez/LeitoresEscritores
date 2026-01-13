@@ -4,14 +4,12 @@
 #include <semaphore.h>
 #include <unistd.h>
 #include <time.h>
-#include <string.h>
 
 // ==================== CONFIGURAÇÕES ====================
-#define NUM_LEITORES 15     // Quantidade de leitores
-#define NUM_ESCRITORES 3    // Quantidade de escritores
-#define TEMPO_LEITURA 2     // Tempo que leva para ler
-#define TEMPO_ESCRITA 3     // Tempo que leva para escrever
-#define INTERVALO_CICLO 1   // Intervalo para atualizar a tela
+#define NUM_LEITORES 5      // Quantidade de leitores
+#define NUM_ESCRITORES 2    // Quantidade de escritores
+#define TEMPO_LEITURA 3     // Tempo que leva para ler
+#define TEMPO_ESCRITA 4     // Tempo que leva para escrever
 
 // ==================== CORES ANSI ====================
 #define RESET   "\033[0m"
@@ -19,74 +17,16 @@
 #define VERMELHO "\033[31m"
 #define AMARELO "\033[33m"
 #define AZUL    "\033[34m"
-#define AZUL_CLARO "\033[96m"
 #define MAGENTA "\033[35m"
 #define CIANO   "\033[36m"
 #define NEGRITO "\033[1m"
-#define CLEAR_SCREEN "\033[2J\033[H"
 
 // ==================== VARIÁVEIS DE SINCRONIZAÇÃO ====================
 sem_t recurso;              // Semáforo: controla acesso ao recurso compartilhado
 sem_t mutex_leitores;       // Semáforo: protege a variável 'leitores_ativos'
 sem_t fila_ordem;           // Semáforo: implementa fila FIFO (evita starvation)
-pthread_mutex_t mutex_display = PTHREAD_MUTEX_INITIALIZER;  // Para atualização da tela
 
 int leitores_ativos = 0;    // Contador: quantos leitores estão lendo agora
-int escritores_aguardando = 0;  // Contador: quantos escritores estão aguardando
-int leitores_aguardando = 0;    // Contador: quantos leitores estão aguardando
-
-// Arrays para rastrear estado de cada thread
-int estado_leitores[20];    // 0=idle, 1=aguardando, 2=acessando
-int estado_escritores[20];  // 0=idle, 1=aguardando, 2=acessando
-
-// ==================== FUNÇÃO DE DISPLAY ====================
-void atualizar_display() {
-    pthread_mutex_lock(&mutex_display);
-    
-    printf(CLEAR_SCREEN);
-    
-    // Cabeçalho
-    printf(AZUL_CLARO "╔════════════════════════════════════════════════════════════════════════════╗\n");
-    printf("║              " NEGRITO "SIMULADOR - LEITORES/ESCRITORES" RESET AZUL_CLARO "                               ║\n");
-    printf("╚════════════════════════════════════════════════════════════════════════════╝\n" RESET);
-    printf("\n");
-    
-    // Status de aguardando
-    printf(VERMELHO "Escritores aguardando: %2d\n" RESET, escritores_aguardando);
-    printf(AMARELO "Leitores aguardando:   %2d\n" RESET, leitores_aguardando);
-    printf("\n");
-    
-    // Box do recurso
-    if (leitores_ativos > 0) {
-        printf(AZUL_CLARO "┌─────────────────────── " RESET VERDE NEGRITO "RECURSO" RESET AZUL_CLARO " ───────────────────────────┐\n" RESET);
-        printf(VERDE NEGRITO "│  %2d leitor(es) acessando                                       │\n" RESET, leitores_ativos);
-        printf(AZUL_CLARO "└──────────────────────────────────────────────────────────────┘\n" RESET);
-    } else {
-        // Verifica se algum escritor está acessando
-        int escritor_ativo = 0;
-        for (int i = 0; i < NUM_ESCRITORES; i++) {
-            if (estado_escritores[i] == 2) {
-                escritor_ativo = i + 1;
-                break;
-            }
-        }
-        
-        if (escritor_ativo > 0) {
-            printf(AZUL_CLARO "┌─────────────────────── " RESET VERMELHO NEGRITO "RECURSO" RESET AZUL_CLARO " ───────────────────────────┐\n" RESET);
-            printf(VERMELHO NEGRITO "│  Escritor %2d acessando (EXCLUSIVO)                          │\n" RESET, escritor_ativo);
-            printf(AZUL_CLARO "└──────────────────────────────────────────────────────────────┘\n" RESET);
-        } else {
-            printf(AZUL_CLARO "┌─────────────────────── " RESET "RECURSO" AZUL_CLARO " ───────────────────────────┐\n" RESET);
-            printf("│  Recurso livre                                               │\n");
-            printf(AZUL_CLARO "└──────────────────────────────────────────────────────────────┘\n" RESET);
-        }
-    }
-    
-    printf("\n");
-    
-    pthread_mutex_unlock(&mutex_display);
-    fflush(stdout);
-}
 
 // ==================== FUNÇÃO LEITOR ====================
 void* leitor(void* arg) {
@@ -94,51 +34,53 @@ void* leitor(void* arg) {
     free(arg);
     
     while (1) {
-        // Estado: IDLE
-        estado_leitores[id-1] = 0;
-        atualizar_display();
+        // Simula tempo entre leituras
         sleep(rand() % 3 + 2);
         
-        // Estado: AGUARDANDO
-        estado_leitores[id-1] = 1;
-        pthread_mutex_lock(&mutex_display);
-        leitores_aguardando++;
-        pthread_mutex_unlock(&mutex_display);
-        atualizar_display();
+        printf(CIANO "[LEITOR %d] Quer ler...\n" RESET, id);
+        fflush(stdout);
+        sleep(1);  // Pausa para dar tempo de ler
         
         // === PROTOCOLO DE ENTRADA ===
-        sem_wait(&fila_ordem);
-        sem_wait(&mutex_leitores);
+        sem_wait(&fila_ordem);          // Entra na fila de espera
+        sem_wait(&mutex_leitores);      // Protege leitores_ativos
         
         leitores_ativos++;
         if (leitores_ativos == 1) {
+            // Primeiro leitor bloqueia escritores
+            printf(AMARELO "    -> Primeiro leitor bloqueando escritores\n" RESET);
+            fflush(stdout);
+            sleep(1);
             sem_wait(&recurso);
         }
         
-        pthread_mutex_lock(&mutex_display);
-        leitores_aguardando--;
-        pthread_mutex_unlock(&mutex_display);
+        sem_post(&mutex_leitores);      // Libera leitores_ativos
+        sem_post(&fila_ordem);          // Libera a fila
         
-        sem_post(&mutex_leitores);
-        sem_post(&fila_ordem);
-        
-        // Estado: ACESSANDO
-        estado_leitores[id-1] = 2;
-        atualizar_display();
+        // === SEÇÃO CRÍTICA: LENDO ===
+        printf(VERDE NEGRITO "    [LEITOR %d] *** LENDO *** " RESET VERDE "(%d leitores no total)\n" RESET, 
+               id, leitores_ativos);
+        fflush(stdout);
         sleep(TEMPO_LEITURA);
         
         // === PROTOCOLO DE SAÍDA ===
         sem_wait(&mutex_leitores);
         leitores_ativos--;
+        printf(CIANO "    [LEITOR %d] Terminou de ler.\n" RESET, id);
+        fflush(stdout);
+        sleep(1);  // Pausa para dar tempo de ler
         
         if (leitores_ativos == 0) {
+            // Último leitor libera escritores
+            printf(AMARELO "    -> Último leitor liberando escritores\n" RESET);
+            fflush(stdout);
+            sleep(1);
             sem_post(&recurso);
         }
         sem_post(&mutex_leitores);
         
-        estado_leitores[id-1] = 0;
-        atualizar_display();
-        sleep(INTERVALO_CICLO);
+        printf("\n");
+        fflush(stdout);
     }
     
     return NULL;
@@ -150,39 +92,36 @@ void* escritor(void* arg) {
     free(arg);
     
     while (1) {
-        // Estado: IDLE
-        estado_escritores[id-1] = 0;
-        atualizar_display();
+        // Escritores esperam mais tempo antes de escrever novamente
         sleep(rand() % 4 + 4);
         
-        // Estado: AGUARDANDO
-        estado_escritores[id-1] = 1;
-        pthread_mutex_lock(&mutex_display);
-        escritores_aguardando++;
-        pthread_mutex_unlock(&mutex_display);
-        atualizar_display();
+        printf(MAGENTA "[ESCRITOR %d] Quer escrever...\n" RESET, id);
+        fflush(stdout);
+        sleep(1);  // Pausa para dar tempo de ler
         
         // === PROTOCOLO DE ENTRADA ===
-        sem_wait(&fila_ordem);
-        sem_wait(&recurso);
+        sem_wait(&fila_ordem);          // Entra na fila de espera
+        printf(AMARELO "    [ESCRITOR %d] Aguardando acesso exclusivo...\n" RESET, id);
+        fflush(stdout);
+        sleep(1);  // Pausa para dar tempo de ler
         
-        pthread_mutex_lock(&mutex_display);
-        escritores_aguardando--;
-        pthread_mutex_unlock(&mutex_display);
+        sem_wait(&recurso);             // Pega acesso EXCLUSIVO
+        sem_post(&fila_ordem);          // Libera a fila
         
-        sem_post(&fila_ordem);
-        
-        // Estado: ACESSANDO
-        estado_escritores[id-1] = 2;
-        atualizar_display();
+        // === SEÇÃO CRÍTICA: ESCREVENDO ===
+        printf(VERMELHO NEGRITO "    [ESCRITOR %d] >>> ESCREVENDO (EXCLUSIVO) <<<\n" RESET, id);
+        fflush(stdout);
         sleep(TEMPO_ESCRITA);
         
-        // === PROTOCOLO DE SAÍDA ===
-        sem_post(&recurso);
+        printf(MAGENTA "    [ESCRITOR %d] Terminou de escrever.\n" RESET, id);
+        fflush(stdout);
+        sleep(1);  // Pausa para dar tempo de ler
         
-        estado_escritores[id-1] = 0;
-        atualizar_display();
-        sleep(INTERVALO_CICLO);
+        // === PROTOCOLO DE SAÍDA ===
+        sem_post(&recurso);             // Libera o recurso
+        
+        printf("\n");
+        fflush(stdout);
     }
     
     return NULL;
@@ -195,22 +134,14 @@ int main() {
     pthread_t threads_leitores[NUM_LEITORES];
     pthread_t threads_escritores[NUM_ESCRITORES];
     
-    // Inicializa arrays de estado
-    for (int i = 0; i < NUM_LEITORES; i++) {
-        estado_leitores[i] = 0;
-    }
-    for (int i = 0; i < NUM_ESCRITORES; i++) {
-        estado_escritores[i] = 0;
-    }
-    
     // Inicializa semáforos
-    sem_init(&recurso, 0, 1);
-    sem_init(&mutex_leitores, 0, 1);
-    sem_init(&fila_ordem, 0, 1);
+    sem_init(&recurso, 0, 1);           // 1 = livre inicialmente
+    sem_init(&mutex_leitores, 0, 1);    // 1 = livre inicialmente
+    sem_init(&fila_ordem, 0, 1);        // 1 = livre inicialmente
     
-    printf(CLEAR_SCREEN);
-    printf(AZUL NEGRITO "\n  Iniciando simulador...\n" RESET);
-    printf(AZUL "  Leitores: %d | Escritores: %d\n\n" RESET, NUM_LEITORES, NUM_ESCRITORES);
+    printf(AZUL NEGRITO "=== SIMULADOR LEITORES-ESCRITORES ===\n" RESET);
+    printf(AZUL "Leitores: %d | Escritores: %d\n\n" RESET, NUM_LEITORES, NUM_ESCRITORES);
+    printf(AMARELO "Iniciando em 2 segundos...\n\n" RESET);
     sleep(2);
     
     // Cria threads de leitores
@@ -227,7 +158,7 @@ int main() {
         pthread_create(&threads_escritores[i], NULL, escritor, id);
     }
     
-    // Aguarda threads
+    // Aguarda threads (programa roda infinitamente)
     for (int i = 0; i < NUM_LEITORES; i++) {
         pthread_join(threads_leitores[i], NULL);
     }
@@ -235,11 +166,10 @@ int main() {
         pthread_join(threads_escritores[i], NULL);
     }
     
-    // Limpa recursos
+    // Limpa semáforos
     sem_destroy(&recurso);
     sem_destroy(&mutex_leitores);
     sem_destroy(&fila_ordem);
-    pthread_mutex_destroy(&mutex_display);
     
     return 0;
 }
