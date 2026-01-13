@@ -141,10 +141,10 @@ Leitores: 5 | Escritores: 2
 - Os tempos de espera entre operações são aleatórios para simular comportamento real
 - A saída inclui pausas intencionais (`sleep(1)`) para facilitar a leitura do log
 
-## 👨‍💻 Autor
+## 👨‍💻 Autores
 
-Trabalho desenvolvido para a disciplina de Sistemas Operacionais.
+Trabalho desenvolvido para a disciplina de Sistemas Operacionais do curso de Análise e Desenvolvimento de Sistemas do IFPI Campus Parnaíba.
+**Discentes:** Marcos, Guilherme, Luana, Luiza e Ludmyla
 
 ## 📄 Licença
-
 Este projeto foi desenvolvido para fins educacionais.
