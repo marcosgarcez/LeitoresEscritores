@@ -1,150 +1,155 @@
-# Problema dos leitores-escritores
+# Problema dos leitores e escritores
 
-Implementação do clássico problema de sincronização de processos **Leitores-Escritores** em C, utilizando semáforos POSIX para garantir acesso seguro a recursos compartilhados e evitar condições de corrida.
+Uma implementação em C do clássico problema de sincronização de threads usando semáforos e mutexes POSIX, com prioridade para escritores e monitoramento visual em tempo real.
 
-## 📋 Sobre o projeto
+## 📋 Descrição do problema
 
-Este projeto foi desenvolvido como trabalho prático da disciplina de **Sistemas Operacionais**, com o objetivo de implementar uma solução para o problema dos leitores-escritores utilizando mecanismos de sincronização (semáforos, mutexes) para garantir:
-
-- **Exclusão mútua**: escritores têm acesso exclusivo ao recurso
-- **Leitura concorrente**: múltiplos leitores podem ler simultaneamente
-- **Prevenção de starvation**: implementação de fila FIFO para garantir justiça no acesso
-
-## 🎯 Características da implementação
-
-### Solução adotada
-
-A implementação utiliza **três semáforos**:
-
-- `recurso`: controla o acesso exclusivo ao recurso compartilhado
-- `mutex_leitores`: protege a variável `leitores_ativos` (região crítica)
-- `fila_ordem`: implementa uma fila FIFO para evitar starvation de escritores
+Imagine uma sala com um painel de informações e duas portas: uma para leitores e outra para escritores. A sala comporta até 15 leitores simultaneamente que podem ler as informações do painel, mas precisa garantir exclusão mútua com os escritores.
 
 ### Regras de sincronização
 
-1. **Leitores**:
-   - Múltiplos leitores podem ler simultaneamente
-   - O primeiro leitor bloqueia escritores
-   - O último leitor libera escritores
+- **Exclusão mútua**: Leitores e escritores não podem estar na sala ao mesmo tempo
+- **Escritor único**: Apenas um escritor pode estar na sala por vez
+- **Capacidade limitada**: Máximo de 15 leitores simultâneos
+- **Prioridade de escritores**: Quando um escritor chega, novos leitores são bloqueados
 
-2. **Escritores**:
-   - Têm acesso exclusivo ao recurso
-   - Nenhum leitor ou escritor pode acessar durante a escrita
+### Dinâmica dos leitores
 
-3. **Justiça**:
-   - Fila FIFO garante que nenhum processo sofra starvation
-   - Todos entram na mesma fila de espera
+1. O primeiro leitor a entrar fecha a porta dos escritores
+2. Múltiplos leitores podem ler simultaneamente (até 15)
+3. Cada leitura demora entre 3 e 8 segundos
+4. O último leitor a sair libera a porta dos escritores
 
-## 🛠️ Tecnologias utilizadas
+### Dinâmica dos escritores
 
-- **Linguagem**: C
-- **Threads**: POSIX Threads (pthread)
-- **Sincronização**: Semáforos POSIX (semaphore.h)
-- **Sistema**: Linux/Unix
+1. Ao chegar, o escritor bloqueia a entrada de novos leitores
+2. Aguarda todos os leitores atuais saírem
+3. Entra na sala e atualiza o painel (3 segundos)
+4. Se houver fila de escritores, eles entram sequencialmente
+5. O último escritor libera a porta dos leitores
 
-## 📦 Requisitos
+## 🚀 Funcionalidades
 
-- Compilador GCC
-- Bibliotecas POSIX (pthread, semaphore)
-- Sistema operacional Linux/Unix
+- ✅ Sincronização completa usando semáforos e mutexes
+- ✅ Prioridade para escritores (evita starvation)
+- ✅ Dashboard visual em tempo real
+- ✅ Log dos últimos 5 eventos com timestamp
+- ✅ Contadores de leitores ativos e escritores aguardando
+- ✅ Interface com bordas e emojis para melhor visualização
 
-## 🚀 Como compilar e executar
+## 🛠️ Compilação e execução
 
-### Compilação
+### Pré-requisitos
+
+- GCC (GNU Compiler Collection)
+- Biblioteca pthread (geralmente já incluída no Linux)
+- Terminal com suporte a Unicode para visualização correta dos caracteres
+
+### Compilar
 
 ```bash
 gcc -o leitores_escritores LeitoresEscritores.c -lpthread
 ```
 
-### Execução
+### Executar
 
 ```bash
 ./leitores_escritores
 ```
 
-## ⚙️ Configurações
+O programa roda por 60 segundos e exibe um dashboard atualizado a cada segundo.
 
-Você pode ajustar os parâmetros no início do arquivo `LeitoresEscritores.c`:
+## 📊 Dashboard de monitoramento
+
+```
+╔═══════════════════════════════════════════════════════╗
+║              🚪 MONITOR DA SALA 🚪                    ║
+╠═══════════════════════════════════════════════════════╣
+║                                                       ║
+║  📖 Leitores dentro:       3                          ║
+║  ✏️  Escritores aguardando: 1                         ║
+║                                                       ║
+╠═══════════════════════════════════════════════════════╣
+║  📋 ÚLTIMOS EVENTOS:                                  ║
+╠═══════════════════════════════════════════════════════╣
+║ [14:23:45] Leitor 5 entrou na sala                    ║
+║ [14:23:46] Escritor 2 entrou na fila                  ║
+║ [14:23:47] Leitor 3 saiu da sala                      ║
+║ [14:23:50] Leitor 5 saiu da sala                      ║
+║ [14:23:51] Escritor 2 escrevendo!                     ║
+╚═══════════════════════════════════════════════════════╝
+```
+
+## 🔧 Estrutura do código
+
+### Variáveis globais
+
+- `leitores_dentro`: Contador de leitores ativos
+- `escritores_aguardando`: Contador de escritores na fila
+
+### Semáforos
+
+- `porta_leitores`: Controla o acesso de novos leitores
+- `porta_escritores`: Controla o acesso de escritores
+- `sala`: Garante exclusão mútua na sala
+- `vagas_sala`: Limita a capacidade a 15 leitores
+
+### Mutexes
+
+- `mutex`: Protege variáveis compartilhadas
+- `mutex_dashboard`: Protege o acesso ao dashboard
+
+### Threads
+
+- **Leitores** (10 threads): Tentam ler periodicamente
+- **Escritores** (3 threads): Tentam escrever com menor frequência
+- **Monitor** (1 thread): Atualiza o dashboard visual
+
+## 📝 Parâmetros configuráveis
 
 ```c
-#define NUM_LEITORES 5      // Quantidade de threads leitoras
-#define NUM_ESCRITORES 2    // Quantidade de threads escritoras
-#define TEMPO_LEITURA 3     // Tempo de leitura (segundos)
-#define TEMPO_ESCRITA 4     // Tempo de escrita (segundos)
+#define NUM_LEITORES 10      // Número de threads leitoras
+#define NUM_ESCRITORES 3     // Número de threads escritoras
+#define MAX_LOGS 5           // Quantidade de eventos no log
 ```
 
-## 📊 Saída do programa
+Você pode ajustar esses valores no início do arquivo para testar diferentes cenários.
 
-O programa exibe uma saída colorida e detalhada mostrando:
+## 🎯 Solução para starvation
 
-- Quando cada processo quer acessar o recurso
-- Quando obtém acesso (leitura ou escrita)
-- Quantos leitores estão lendo simultaneamente
-- Quando escritores obtêm acesso exclusivo
-- Quando processos terminam suas operações
+A implementação garante que escritores não sofram starvation através do mecanismo de prioridade:
 
-### Exemplo de saída:
+1. Quando um escritor chega, a porta dos leitores é fechada
+2. Novos leitores ficam bloqueados até todos os escritores terminarem
+3. Escritores em fila são processados sequencialmente
+4. Apenas após o último escritor sair, os leitores podem entrar novamente
 
-```
-=== SIMULADOR LEITORES-ESCRITORES ===
-Leitores: 5 | Escritores: 2
+## 📚 Conceitos aplicados
 
-[LEITOR 1] Quer ler...
-    -> Primeiro leitor bloqueando escritores
-    [LEITOR 1] *** LENDO *** (1 leitores no total)
-[LEITOR 2] Quer ler...
-    [LEITOR 2] *** LENDO *** (2 leitores no total)
-[ESCRITOR 1] Quer escrever...
-    [ESCRITOR 1] Aguardando acesso exclusivo...
-    [LEITOR 1] Terminou de ler.
-    [LEITOR 2] Terminou de ler.
-    -> Último leitor liberando escritores
-    [ESCRITOR 1] >>> ESCREVENDO (EXCLUSIVO) <<<
-```
+- **Threads POSIX**: Programação concorrente
+- **Semáforos**: Sincronização e contagem
+- **Mutexes**: Exclusão mútua para regiões críticas
+- **Problema clássico**: Leitores e escritores com prioridade
+- **Deadlock prevention**: Ordem consistente de aquisição de recursos
 
-## 🔍 Detalhes da implementação
+## 🐛 Troubleshooting
 
-### Protocolo do leitor
+**Caracteres não aparecem corretamente:**
+- Certifique-se de que seu terminal suporta UTF-8
+- No Linux, geralmente já é o padrão
 
-1. Entra na fila de ordem (`sem_wait(&fila_ordem)`)
-2. Protege o contador de leitores ativos (`sem_wait(&mutex_leitores)`)
-3. Incrementa `leitores_ativos`
-4. Se for o primeiro leitor, bloqueia escritores (`sem_wait(&recurso)`)
-5. Libera a fila e o mutex
-6. **Lê o recurso**
-7. Decrementa `leitores_ativos`
-8. Se for o último leitor, libera escritores (`sem_post(&recurso)`)
+**Erro de compilação com pthread:**
+- Verifique se a flag `-lpthread` está sendo usada
+- Em alguns sistemas, pode ser necessário `-pthread`
 
-### Protocolo do escritor
-
-1. Entra na fila de ordem (`sem_wait(&fila_ordem)`)
-2. Aguarda acesso exclusivo ao recurso (`sem_wait(&recurso)`)
-3. Libera a fila
-4. **Escreve no recurso (exclusivo)**
-5. Libera o recurso (`sem_post(&recurso)`)
-
-## 🎓 Conceitos de sistemas operacionais aplicados
-
-- **Sincronização de processos**
-- **Exclusão mútua**
-- **Semáforos**
-- **Condições de corrida**
-- **Deadlock** (prevenção)
-- **Starvation** (prevenção via FIFO)
-- **Threads POSIX**
-- **Seções críticas**
-
-## 📝 Observações
-
-- O programa executa indefinidamente (loop infinito nas threads)
-- Use `Ctrl+C` para encerrar a execução
-- Os tempos de espera entre operações são aleatórios para simular comportamento real
-- A saída inclui pausas intencionais (`sleep(1)`) para facilitar a leitura do log
-
-## 👨‍💻 Autores
-
-Trabalho desenvolvido para a disciplina de Sistemas Operacionais do curso de Análise e Desenvolvimento de Sistemas do IFPI Campus Parnaíba.
-**Discentes:** Marcos, Guilherme, Luana, Luiza e Ludmyla
+**Tela não limpa corretamente:**
+- O comando `clear` precisa estar disponível
+- Em Windows, substitua por `system("cls")`
 
 ## 📄 Licença
-Este projeto foi desenvolvido para fins educacionais.
+
+Este projeto é de código aberto e está disponível para fins educacionais.
+
+## 👨‍💻 Autor
+
+Desenvolvido como material didático para estudo de sincronização de threads e problemas clássicos de sistemas operacionais.
