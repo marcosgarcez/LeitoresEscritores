@@ -1,175 +1,259 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <pthread.h>
-#include <semaphore.h>
-#include <unistd.h>
-#include <time.h>
+#include<pthread.h>
+#include<semaphore.h>
+#include<stdio.h>
+#include<unistd.h>
+#include<stdlib.h>
+#include<time.h>
+#include<string.h>
 
-// ==================== CONFIGURAÇÕES ====================
-#define NUM_LEITORES 5      // Quantidade de leitores
-#define NUM_ESCRITORES 2    // Quantidade de escritores
-#define TEMPO_LEITURA 3     // Tempo que leva para ler
-#define TEMPO_ESCRITA 4     // Tempo que leva para escrever
+#define NUM_LEITORES 10
+#define NUM_ESCRITORES 3
+#define MAX_LOGS 5
 
-// ==================== CORES ANSI ====================
-#define RESET   "\033[0m"
-#define VERDE   "\033[32m"
-#define VERMELHO "\033[31m"
-#define AMARELO "\033[33m"
-#define AZUL    "\033[34m"
-#define MAGENTA "\033[35m"
-#define CIANO   "\033[36m"
-#define NEGRITO "\033[1m"
+int leitores_dentro = 0;
+int escritores_aguardando = 0;
 
-// ==================== VARIÁVEIS DE SINCRONIZAÇÃO ====================
-sem_t recurso;              // Semáforo: controla acesso ao recurso compartilhado
-sem_t mutex_leitores;       // Semáforo: protege a variável 'leitores_ativos'
-sem_t fila_ordem;           // Semáforo: implementa fila FIFO (evita starvation)
+pthread_mutex_t mutex;
+pthread_mutex_t mutex_dashboard;
+sem_t porta_leitores;
+sem_t porta_escritores;
+sem_t sala;
+sem_t vagas_sala;
 
-int leitores_ativos = 0;    // Contador: quantos leitores estão lendo agora
+// Estrutura para logs
+typedef struct {
+    char mensagem[100];
+    char timestamp[20];
+} Log;
 
-// ==================== FUNÇÃO LEITOR ====================
-void* leitor(void* arg) {
-    int id = *((int*)arg);
-    free(arg);
+// Estrutura do dashboard
+typedef struct {
+    int leitores_dentro;
+    int escritores_aguardando;
+    Log logs[MAX_LOGS];
+    int log_index;
+} Dashboard;
+
+Dashboard dashboard;
+
+// Inicializa o dashboard
+void inicializa_dashboard() {
+    dashboard.leitores_dentro = 0;
+    dashboard.escritores_aguardando = 0;
+    dashboard.log_index = 0;
     
-    while (1) {
-        // Simula tempo entre leituras
-        sleep(rand() % 3 + 2);
+    for(int i = 0; i < MAX_LOGS; i++) {
+        strcpy(dashboard.logs[i].mensagem, "");
+        strcpy(dashboard.logs[i].timestamp, "");
+    }
+}
+
+// Adiciona log ao dashboard
+void adiciona_log(const char* mensagem) {
+    time_t now = time(NULL);
+    struct tm *t = localtime(&now);
+    
+    pthread_mutex_lock(&mutex_dashboard);
+    
+    sprintf(dashboard.logs[dashboard.log_index].timestamp, 
+            "%02d:%02d:%02d", t->tm_hour, t->tm_min, t->tm_sec);
+    
+    strncpy(dashboard.logs[dashboard.log_index].mensagem, mensagem, 99);
+    
+    dashboard.log_index = (dashboard.log_index + 1) % MAX_LOGS;
+    
+    pthread_mutex_unlock(&mutex_dashboard);
+}
+
+// Atualiza contadores no dashboard
+void atualiza_contadores() {
+    pthread_mutex_lock(&mutex_dashboard);
+    dashboard.leitores_dentro = leitores_dentro;
+    dashboard.escritores_aguardando = escritores_aguardando;
+    pthread_mutex_unlock(&mutex_dashboard);
+}
+
+// Thread monitor que imprime o dashboard
+void* monitor(void* arg) {
+    while(1) {
+        system("clear");
         
-        printf(CIANO "[LEITOR %d] Quer ler...\n" RESET, id);
-        fflush(stdout);
-        sleep(1);  // Pausa para dar tempo de ler
+        pthread_mutex_lock(&mutex_dashboard);
         
-        // === PROTOCOLO DE ENTRADA ===
-        sem_wait(&fila_ordem);          // Entra na fila de espera
-        sem_wait(&mutex_leitores);      // Protege leitores_ativos
+        printf("╔═══════════════════════════════════════════════════════╗\n");
+        printf("║              🚪 MONITOR DA SALA 🚪                    ║\n");
+        printf("╠═══════════════════════════════════════════════════════╣\n");
+        printf("║                                                       ║\n");
+        printf("║  📖 Leitores dentro:       %-27d║\n", dashboard.leitores_dentro);
+        printf("║  ✍️  Escritores aguardando: %-27d║\n", dashboard.escritores_aguardando);
+        printf("║                                                       ║\n");
+        printf("╠═══════════════════════════════════════════════════════╣\n");
+        printf("║  📋 ÚLTIMOS EVENTOS:                                  ║\n");
+        printf("╠═══════════════════════════════════════════════════════╣\n");
         
-        leitores_ativos++;
-        if (leitores_ativos == 1) {
-            // Primeiro leitor bloqueia escritores
-            printf(AMARELO "    -> Primeiro leitor bloqueando escritores\n" RESET);
-            fflush(stdout);
-            sleep(1);
-            sem_wait(&recurso);
+        for(int i = 0; i < MAX_LOGS; i++) {
+            int idx = (dashboard.log_index + i) % MAX_LOGS;
+            
+            if(strlen(dashboard.logs[idx].mensagem) > 0) {
+                printf("║ [%s] %-43s║\n", dashboard.logs[idx].timestamp, dashboard.logs[idx].mensagem);
+            } else {
+                printf("║                                                       ║\n");
+            }
         }
         
-        sem_post(&mutex_leitores);      // Libera leitores_ativos
-        sem_post(&fila_ordem);          // Libera a fila
+        printf("╚═══════════════════════════════════════════════════════╝\n");
         
-        // === SEÇÃO CRÍTICA: LENDO ===
-        printf(VERDE NEGRITO "    [LEITOR %d] *** LENDO *** " RESET VERDE "(%d leitores no total)\n" RESET, 
-               id, leitores_ativos);
-        fflush(stdout);
-        sleep(TEMPO_LEITURA);
+        pthread_mutex_unlock(&mutex_dashboard);
         
-        // === PROTOCOLO DE SAÍDA ===
-        sem_wait(&mutex_leitores);
-        leitores_ativos--;
-        printf(CIANO "    [LEITOR %d] Terminou de ler.\n" RESET, id);
-        fflush(stdout);
-        sleep(1);  // Pausa para dar tempo de ler
-        
-        if (leitores_ativos == 0) {
-            // Último leitor libera escritores
-            printf(AMARELO "    -> Último leitor liberando escritores\n" RESET);
-            fflush(stdout);
-            sleep(1);
-            sem_post(&recurso);
+        sleep(1);
+    }
+    return NULL;
+}
+
+void* leitor(void* arg){
+    int id = *(int*)arg;
+    char log_msg[100];
+
+    while(1){
+        sleep(rand() % 5 + 1);
+
+        sem_wait(&porta_leitores);
+        sem_post(&porta_leitores);
+
+        sem_wait(&vagas_sala);
+
+        pthread_mutex_lock(&mutex);
+        leitores_dentro++;
+
+        if(leitores_dentro == 1){
+            sem_wait(&porta_escritores);
         }
-        sem_post(&mutex_leitores);
+
+        pthread_mutex_unlock(&mutex);
         
-        printf("\n");
-        fflush(stdout);
+        atualiza_contadores();
+        sprintf(log_msg, "Leitor %d entrou na sala", id);
+        adiciona_log(log_msg);
+        
+        sleep(rand() % 6 + 3);
+        
+        pthread_mutex_lock(&mutex);
+        leitores_dentro--;
+
+        if(leitores_dentro == 0){
+            sem_post(&porta_escritores);
+        }
+
+        pthread_mutex_unlock(&mutex);
+
+        atualiza_contadores();
+        sprintf(log_msg, "Leitor %d saiu da sala", id);
+        adiciona_log(log_msg);
+
+        sem_post(&vagas_sala);
     }
     
     return NULL;
 }
 
-// ==================== FUNÇÃO ESCRITOR ====================
-void* escritor(void* arg) {
-    int id = *((int*)arg);
-    free(arg);
-    
-    while (1) {
-        // Escritores esperam mais tempo antes de escrever novamente
-        sleep(rand() % 4 + 4);
+void* escritor(void* arg){
+    int id = *(int*)arg;
+    char log_msg[100];
+
+    while (1){
+        sleep(rand() % 15 + 10); 
+
+        pthread_mutex_lock(&mutex);
+        escritores_aguardando++;
         
-        printf(MAGENTA "[ESCRITOR %d] Quer escrever...\n" RESET, id);
-        fflush(stdout);
-        sleep(1);  // Pausa para dar tempo de ler
+        if(escritores_aguardando == 1) {
+            sem_wait(&porta_leitores);
+        }
         
-        // === PROTOCOLO DE ENTRADA ===
-        sem_wait(&fila_ordem);          // Entra na fila de espera
-        printf(AMARELO "    [ESCRITOR %d] Aguardando acesso exclusivo...\n" RESET, id);
-        fflush(stdout);
-        sleep(1);  // Pausa para dar tempo de ler
+        pthread_mutex_unlock(&mutex);
+
+        atualiza_contadores();
+        sprintf(log_msg, "Escritor %d entrou na fila", id);
+        adiciona_log(log_msg);
+
+        sem_wait(&porta_escritores);
+        sem_wait(&sala);
+
+        sprintf(log_msg, "Escritor %d escrevendo!", id);
+        adiciona_log(log_msg);
         
-        sem_wait(&recurso);             // Pega acesso EXCLUSIVO
-        sem_post(&fila_ordem);          // Libera a fila
+        sleep(3);
+
+        sem_post(&sala);
+
+        pthread_mutex_lock(&mutex);
+        escritores_aguardando--;
         
-        // === SEÇÃO CRÍTICA: ESCREVENDO ===
-        printf(VERMELHO NEGRITO "    [ESCRITOR %d] >>> ESCREVENDO (EXCLUSIVO) <<<\n" RESET, id);
-        fflush(stdout);
-        sleep(TEMPO_ESCRITA);
+        if(escritores_aguardando == 0) {
+            sem_post(&porta_leitores);
+        }
         
-        printf(MAGENTA "    [ESCRITOR %d] Terminou de escrever.\n" RESET, id);
-        fflush(stdout);
-        sleep(1);  // Pausa para dar tempo de ler
+        pthread_mutex_unlock(&mutex);
+
+        atualiza_contadores();
+        sprintf(log_msg, "Escritor %d terminou", id);
+        adiciona_log(log_msg);
         
-        // === PROTOCOLO DE SAÍDA ===
-        sem_post(&recurso);             // Libera o recurso
-        
-        printf("\n");
-        fflush(stdout);
+        sem_post(&porta_escritores);
     }
-    
+
     return NULL;
 }
 
-// ==================== FUNÇÃO PRINCIPAL ====================
-int main() {
+int main(){
     srand(time(NULL));
+
+    inicializa_dashboard();
+
+    pthread_mutex_init(&mutex, NULL);
+    pthread_mutex_init(&mutex_dashboard, NULL);
+    sem_init(&porta_leitores, 0, 1);
+    sem_init(&porta_escritores, 0, 1);
+    sem_init(&sala, 0, 1);
+    sem_init(&vagas_sala, 0, 15);
+
+    pthread_t leitores[NUM_LEITORES];
+    pthread_t escritores[NUM_ESCRITORES];
+    pthread_t thread_monitor;
     
-    pthread_t threads_leitores[NUM_LEITORES];
-    pthread_t threads_escritores[NUM_ESCRITORES];
-    
-    // Inicializa semáforos
-    sem_init(&recurso, 0, 1);           // 1 = livre inicialmente
-    sem_init(&mutex_leitores, 0, 1);    // 1 = livre inicialmente
-    sem_init(&fila_ordem, 0, 1);        // 1 = livre inicialmente
-    
-    printf(AZUL NEGRITO "=== SIMULADOR LEITORES-ESCRITORES ===\n" RESET);
-    printf(AZUL "Leitores: %d | Escritores: %d\n\n" RESET, NUM_LEITORES, NUM_ESCRITORES);
-    printf(AMARELO "Iniciando em 2 segundos...\n\n" RESET);
+    int ids_leitores[NUM_LEITORES];
+    int ids_escritores[NUM_ESCRITORES];
+
+    printf("=== Simulação iniciada! ===\n\n");
     sleep(2);
-    
-    // Cria threads de leitores
-    for (int i = 0; i < NUM_LEITORES; i++) {
-        int* id = malloc(sizeof(int));
-        *id = i + 1;
-        pthread_create(&threads_leitores[i], NULL, leitor, id);
+
+    // Criar thread monitor
+    pthread_create(&thread_monitor, NULL, monitor, NULL);
+
+    // Criar threads dos leitores
+    for (int i = 0; i < NUM_LEITORES; i++){
+        ids_leitores[i] = i + 1;
+        pthread_create(&leitores[i], NULL, leitor, &ids_leitores[i]);
     }
-    
-    // Cria threads de escritores
-    for (int i = 0; i < NUM_ESCRITORES; i++) {
-        int* id = malloc(sizeof(int));
-        *id = i + 1;
-        pthread_create(&threads_escritores[i], NULL, escritor, id);
+
+    // Criar threads dos escritores
+    for (int i = 0; i < NUM_ESCRITORES; i++){
+        ids_escritores[i] = i + 1;
+        pthread_create(&escritores[i], NULL, escritor, &ids_escritores[i]);
     }
+
+    // Deixa rodar por 60 segundos
+    sleep(60);
     
-    // Aguarda threads (programa roda infinitamente)
-    for (int i = 0; i < NUM_LEITORES; i++) {
-        pthread_join(threads_leitores[i], NULL);
-    }
-    for (int i = 0; i < NUM_ESCRITORES; i++) {
-        pthread_join(threads_escritores[i], NULL);
-    }
-    
-    // Limpa semáforos
-    sem_destroy(&recurso);
-    sem_destroy(&mutex_leitores);
-    sem_destroy(&fila_ordem);
-    
+    printf("\n=== Encerrando simulação ===\n");
+
+    // Limpar recursos
+    pthread_mutex_destroy(&mutex);
+    pthread_mutex_destroy(&mutex_dashboard);
+    sem_destroy(&porta_leitores);
+    sem_destroy(&porta_escritores);
+    sem_destroy(&sala);
+    sem_destroy(&vagas_sala);
+
     return 0;
 }
